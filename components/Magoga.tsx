@@ -129,7 +129,7 @@ export function MagogaSteal({ tileSrc, onDone }: { tileSrc?: string; onDone: () 
               key="trophy"
               src={tileSrc}
               alt=""
-              className="tile-shadow absolute -left-[38px] -top-[44px] h-[88px] w-[76px] max-w-none"
+              className="tile-shadow absolute -left-[44px] -top-[42px] h-auto w-[96px] max-w-none"
               initial={{ scale: 0, rotate: -20 }}
               animate={{ scale: 1, rotate: step === 2 ? [0, -4, 4, 0] : 0 }}
               exit={{ opacity: 0, transition: { duration: 0.05 } }}
@@ -147,7 +147,7 @@ export function MagogaSteal({ tileSrc, onDone }: { tileSrc?: string; onDone: () 
           <Gull mode={step === 2 ? 'squawk' : 'fly'} width={240} />
           {step === 3 && tileSrc && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={tileSrc} alt="" className="tile-shadow absolute left-[96px] top-[150px] h-[88px] w-[76px] max-w-none rotate-12" />
+            <img src={tileSrc} alt="" className="tile-shadow absolute left-[90px] top-[150px] h-auto w-[96px] max-w-none rotate-12" />
           )}
           <AnimatePresence>
             {step === 2 && (

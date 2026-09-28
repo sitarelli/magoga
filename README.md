@@ -17,7 +17,7 @@ Deploy: importa la cartella su Vercel (framework Next.js rilevato in automatico)
 
 ## Struttura
 - `public/tiles.png` sprite sheet 9x6 (54 tessere uniche)
-- `lib/spriteSplitter.ts` taglio in canvas (cella width/9 x height/6), rifilatura del bordo bianco e dell'ombra, angoli trasparenti
+- `lib/spriteSplitter.ts` taglio in canvas (cella width/9 x height/6): con sfondo trasparente usa l'alpha per bordi puliti, poi cuoce su ogni tessera spessore 3D e ombra morbida
 - `lib/layout.ts` livelli: piano, poi piramidi sempre più alte con forme a rotazione (rombo, ponte, torri, croce, anello, isola); in verticale su mobile la griglia ruota
 - `lib/board.ts` regole (tessera libera = non coperta e con un lato libero), distribuzione sempre risolvibile, rimescolo risolvibile
 - `lib/sound.ts` audio procedurale Web Audio: ambienti (laguna, nebbia con campane, colli con uccellini, montagna con vento e campanacci), vaporetto e gabbiani lontani, bambù, cin cin di spritz e prosecco, verso del magòga

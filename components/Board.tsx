@@ -3,13 +3,18 @@ import { motion } from 'framer-motion';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Tile } from '@/lib/board';
 import { KIND_NAMES } from '@/lib/tiles';
+import { TILE, TILE_H, TILE_W } from '@/lib/spriteSplitter';
 
-/** Proporzioni della tessera ritagliata (176x182) e passo sulla griglia */
-const ASPECT = 176 / 182;
-const SX = 0.95; // passo orizzontale in frazione della larghezza
-const SY = 0.9; // passo verticale: il bordo inferiore 3D resta sotto la tessera successiva
-const DX = 0.075; // spostamento per strato
-const DY = 0.09;
+/**
+ * La griglia lavora sulla FACCIA quadrata della tessera; lo spessore e l'ombra sono già cotti
+ * nel PNG e sporgono oltre la faccia (sotto e a destra), coperti dalla riga successiva.
+ */
+const ASPECT = 1;
+const SX = 0.985; // facce quasi a contatto
+const SY = 0.985;
+const DX = 0.07; // spostamento per strato: si vede lo spessore della tessera sopra
+const DY = 0.085;
+const DEPTH = (TILE.depth + 3) / TILE.face; // margine per lo spessore dell'ultima riga
 
 interface Props {
   tiles: Tile[];
@@ -49,7 +54,7 @@ export function Board({ tiles, sprites, free, selected, hint, vanishing, shakeId
 
   const size = useMemo(() => {
     const wu = (geom.spanX / 2 - 1) * SX + 1 + geom.layers * DX;
-    const hu = (geom.spanY / 2 - 1) * SY + 1 + geom.layers * DY;
+    const hu = (geom.spanY / 2 - 1) * SY + 1 + geom.layers * DY + DEPTH;
     const w = Math.max(24, Math.min(box.w / wu, (box.h * ASPECT) / hu, 118));
     return { w, h: w / ASPECT, bw: wu * w, bh: (hu * w) / ASPECT };
   }, [box, geom]);
@@ -103,7 +108,7 @@ export function Board({ tiles, sprites, free, selected, hint, vanishing, shakeId
                   disabled={partner !== undefined}
                   onClick={() => onTile(t)}
                   className="relative block h-full w-full p-0 outline-none"
-                  style={{ borderRadius: size.w * 0.12, cursor: isFree ? 'pointer' : 'default' }}
+                  style={{ borderRadius: size.w * TILE.radius, cursor: isFree ? 'pointer' : 'default' }}
                   animate={
                     exitTo
                       ? { opacity: 0, x: exitTo.x, y: exitTo.y - size.h * 0.35, scale: 0.75, transition: { duration: 0.42, ease: [0.4, 0, 0.2, 1] } }
@@ -112,13 +117,19 @@ export function Board({ tiles, sprites, free, selected, hint, vanishing, shakeId
                   transition={{ type: 'spring', stiffness: 420, damping: 28 }}
                   whileHover={isFree && !exitTo && !isSel ? { y: -size.h * 0.035 } : undefined}
                 >
-                  <span key={shake} className={`block h-full w-full ${shake ? 'tile-shake' : ''}`}>
+                  <span key={shake} className={`relative block h-full w-full ${shake ? 'tile-shake' : ''}`}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={sprites[t.kind]}
                       alt=""
                       draggable={false}
-                      className={`pointer-events-none h-full w-full select-none transition-[filter] duration-300 ${isFree ? 'tile-free' : 'tile-blocked'}`}
+                      className={`pointer-events-none absolute max-w-none select-none transition-[filter] duration-300 ${isFree ? 'tile-free' : 'tile-blocked'}`}
+                      style={{
+                        left: -(TILE.padL / TILE.face) * size.w,
+                        top: -(TILE.padT / TILE.face) * size.w,
+                        width: (TILE_W / TILE.face) * size.w,
+                        height: (TILE_H / TILE.face) * size.w,
+                      }}
                     />
                   </span>
                   {isSel && (
