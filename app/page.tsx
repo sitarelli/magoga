@@ -15,13 +15,17 @@ export default function Home() {
   useEffect(() => {
     setProgress(loadProgress());
     sound.attachUnlock();
+    const bake = setTimeout(() => sound.prepare(), 500); // sintetizza i suoni in background
     sound.setAmbient('water'); // parte al primo tocco: la laguna accoglie
     const onClick = (e: MouseEvent) => {
       const el = (e.target as HTMLElement | null)?.closest('button:not([data-nosfx])');
       if (el && !(el as HTMLButtonElement).disabled) sound.click();
     };
     document.addEventListener('click', onClick);
-    return () => document.removeEventListener('click', onClick);
+    return () => {
+      clearTimeout(bake);
+      document.removeEventListener('click', onClick);
+    };
   }, []);
 
   const onProgress = useCallback(

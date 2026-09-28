@@ -6,6 +6,7 @@ import { Scene } from './Scene';
 import { MagogaSteal } from './Magoga';
 import { Confetti } from './Confetti';
 import type { Mode } from '@/lib/progress';
+import type { TileSprites } from '@/lib/spriteSplitter';
 import { SoundToggle } from './SoundToggle';
 import { availablePairs, dealSolvable, freeTiles, pickKinds, reshuffle, type Tile } from '@/lib/board';
 import { buildLayout, sceneFor, type SceneKey } from '@/lib/layout';
@@ -32,7 +33,7 @@ const MASTER_MS = 9000; // ...entro 9 secondi
 
 interface Props {
   mode: Mode;
-  sprites: string[];
+  sprites: TileSprites;
   startLevel: number;
   startScore: number;
   onProgress: (level: number, score: number) => void;
@@ -46,6 +47,37 @@ function Stat({ label, value }: { label: string; value: string | number }) {
       <motion.span key={String(value)} initial={{ y: -4, opacity: 0.4 }} animate={{ y: 0, opacity: 1 }} className="font-display text-base font-semibold tabular-nums text-legno-800 sm:text-lg">
         {value}
       </motion.span>
+    </div>
+  );
+}
+
+/** Legge un valore da un ref a intervalli: solo questo piccolo componente si ridisegna, non tutta la partita */
+function useRefValue(ref: { current: number }, active: boolean, ms: number, resetKey: string) {
+  const [v, setV] = useState(ref.current);
+  useEffect(() => {
+    setV(ref.current);
+    if (!active) return;
+    const iv = setInterval(() => setV(ref.current), ms);
+    return () => clearInterval(iv);
+  }, [ref, active, ms, resetKey]);
+  return v;
+}
+
+function TimeStat({ timeRef, active, resetKey }: { timeRef: { current: number }; active: boolean; resetKey: string }) {
+  const v = useRefValue(timeRef, active, 250, resetKey);
+  return <Stat label="Resta" value={fmt(Math.ceil(v))} />;
+}
+
+function TimeFill({ timeRef, maxRef, active, resetKey }: { timeRef: { current: number }; maxRef: { current: number }; active: boolean; resetKey: string }) {
+  const v = useRefValue(timeRef, active, 100, resetKey);
+  const pct = Math.max(0, Math.min(1, v / maxRef.current));
+  const low = pct < 0.25;
+  return (
+    <div className="glass relative h-3.5 overflow-hidden rounded-full p-[3px]" role="progressbar" aria-label="Tempo rimasto" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct * 100)}>
+      <div
+        className={`h-full rounded-full transition-[width] duration-100 ease-linear ${low ? 'animate-pulse' : ''}`}
+        style={{ width: `${pct * 100}%`, background: low ? 'linear-gradient(90deg,#d4550f,#e4572e)' : 'linear-gradient(90deg,#2f7f86,#e9c46a 55%,#f26b1d)' }}
+      />
     </div>
   );
 }
@@ -80,7 +112,6 @@ export function Game({ mode, sprites, startLevel: initialLevel, startScore, onPr
   const [trophy, setTrophy] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(0);
   const [gains, setGains] = useState<{ id: number; v: number }[]>([]);
   const [confetti, setConfetti] = useState<number | null>(null);
   const sfida = mode === 'sfida';
@@ -99,6 +130,7 @@ export function Game({ mode, sprites, startLevel: initialLevel, startScore, onPr
   const hintTimer = useRef<ReturnType<typeof setTimeout>>();
 
   const scene = sceneFor(level);
+  const timerActive = sfida && phase === 'playing' && !paused;
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -126,7 +158,6 @@ export function Game({ mode, sprites, startLevel: initialLevel, startScore, onPr
     setTrophy(null);
     maxTime.current = challengeTime(dealt.length);
     timeRef.current = maxTime.current;
-    setTimeLeft(maxTime.current);
     streak.current = { n: 0, at: 0 };
     recent.current = [];
     setPhase('playing');
@@ -154,7 +185,6 @@ export function Game({ mode, sprites, startLevel: initialLevel, startScore, onPr
   /* ---------- Sfida: il tempo scende ---------- */
   const addTime = useCallback((v: number) => {
     timeRef.current = Math.max(0, Math.min(maxTime.current, timeRef.current + v));
-    setTimeLeft(timeRef.current);
     const id = ++gainId.current;
     setGains([{ id, v }]);
     setTimeout(() => setGains((g) => g.filter((x) => x.id !== id)), 1100);
@@ -167,7 +197,6 @@ export function Game({ mode, sprites, startLevel: initialLevel, startScore, onPr
       if (document.hidden) return;
       const before = timeRef.current;
       timeRef.current = Math.max(0, before - 0.1 * drain);
-      setTimeLeft(timeRef.current);
       const sec = Math.ceil(timeRef.current);
       if (sec < Math.ceil(before) && sec <= 10 && sec > 0) sound.timeWarn(sec <= 3);
       if (timeRef.current <= 0) {
@@ -217,7 +246,7 @@ export function Game({ mode, sprites, startLevel: initialLevel, startScore, onPr
     setLevelScore((s) => s + pts);
     setMoves((m) => m + 1);
     setSelected(null);
-    setHint([]);
+    setHint((h) => (h.length ? [] : h));
     sound.match(kindSound(a.kind), c);
 
     // colpo da maestro: 5 coppie di fila in pochi secondi
@@ -249,7 +278,7 @@ export function Game({ mode, sprites, startLevel: initialLevel, startScore, onPr
     }, 440);
   };
 
-  const onTile = (t: Tile) => {
+  const handleTile = (t: Tile) => {
     if (phase !== 'playing' || paused || vanishing.has(t.id)) return;
     if (!free.has(t.id)) {
       sound.blocked();
@@ -269,6 +298,11 @@ export function Game({ mode, sprites, startLevel: initialLevel, startScore, onPr
     sound.select();
     setSelected(t.id);
   };
+
+  // callback stabile: la plancia (memoizzata) non si ridisegna a ogni tick del timer
+  const tileHandler = useRef(handleTile);
+  tileHandler.current = handleTile;
+  const onTile = useCallback((t: Tile) => tileHandler.current(t), []);
 
   const doHint = () => {
     const pairs = availablePairs(effective);
@@ -348,26 +382,15 @@ export function Game({ mode, sprites, startLevel: initialLevel, startScore, onPr
         </div>
         <div className="glass flex items-center divide-x divide-legno-600/15 rounded-2xl py-1.5">
           <Stat label="Livello" value={level} />
-          <Stat label={sfida ? 'Resta' : 'Tempo'} value={sfida ? fmt(Math.ceil(timeLeft)) : fmt(elapsed)} />
+          {sfida ? <TimeStat timeRef={timeRef} active={timerActive} resetKey={dealKey} /> : <Stat label="Tempo" value={fmt(elapsed)} />}
           <Stat label="Mosse" value={moves} />
           <Stat label="Punti" value={score} />
         </div>
       </header>
 
       {sfida && (
-        <div className="relative z-10 mx-auto mt-2 w-full max-w-md px-4" aria-label={`Tempo rimasto ${Math.ceil(timeLeft)} secondi`}>
-          <div className="glass relative h-3.5 overflow-hidden rounded-full p-[3px]">
-            <div
-              className={`h-full rounded-full transition-[width] duration-100 ease-linear ${timeLeft / maxTime.current < 0.25 ? 'animate-pulse' : ''}`}
-              style={{
-                width: `${Math.max(0, (timeLeft / maxTime.current) * 100)}%`,
-                background:
-                  timeLeft / maxTime.current < 0.25
-                    ? 'linear-gradient(90deg,#d4550f,#e4572e)'
-                    : 'linear-gradient(90deg,#2f7f86,#e9c46a 55%,#f26b1d)',
-              }}
-            />
-          </div>
+        <div className="relative z-10 mx-auto mt-2 w-full max-w-md px-4">
+          <TimeFill timeRef={timeRef} maxRef={maxTime} active={timerActive} resetKey={dealKey} />
           <AnimatePresence>
             {gains.map((g) => (
               <motion.span
@@ -448,7 +471,7 @@ export function Game({ mode, sprites, startLevel: initialLevel, startScore, onPr
         )}
       </AnimatePresence>
 
-      <AnimatePresence>{phase === 'magoga' && <MagogaSteal tileSrc={trophy !== null ? sprites[trophy] : undefined} onDone={onMagogaDone} />}</AnimatePresence>
+      <AnimatePresence>{phase === 'magoga' && <MagogaSteal tileSrc={trophy !== null ? sprites.free[trophy] : undefined} onDone={onMagogaDone} />}</AnimatePresence>
 
       {/* Livello completato */}
       <AnimatePresence>

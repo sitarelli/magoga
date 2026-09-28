@@ -1,5 +1,5 @@
 /**
- * Taglia lo sprite sheet 9x6 in 54 tessere (dataURL) e "cuoce" su ognuna lo spessore 3D e l'ombra.
+ * Taglia lo sprite sheet 9x6 in 54 tessere (blob URL) e "cuoce" su ognuna lo spessore 3D e l'ombra.
  * Cella base = width/9 x height/6. Se il foglio ha lo sfondo trasparente il contorno si trova
  * dall'alpha (bordi puliti, niente alone bianco); altrimenti si usa il colore beige come prima.
  */
@@ -70,7 +70,21 @@ function tint(src: HTMLCanvasElement, color: string) {
   return c;
 }
 
-export async function splitSpriteSheet(src: string, opts: SplitOptions = {}): Promise<string[]> {
+export interface TileSprites {
+  /** tessera libera: luminosa */
+  free: string[];
+  /** tessera coperta: già scurita nel PNG, così in gioco non servono filtri CSS (pesanti su mobile) */
+  blocked: string[];
+}
+
+/** URL leggero (blob:...) al posto di una data-URL da decine di KB: molto meno costoso da assegnare a 140 <img> */
+function toUrl(c: HTMLCanvasElement): Promise<string> {
+  return new Promise((resolve, reject) => {
+    c.toBlob((b) => (b ? resolve(URL.createObjectURL(b)) : reject(new Error('toBlob fallito'))), 'image/png');
+  });
+}
+
+export async function splitSpriteSheet(src: string, opts: SplitOptions = {}): Promise<TileSprites> {
   const { cols = 9, rows = 6 } = opts;
   const img = await loadImage(src);
   const W = img.naturalWidth || img.width;
@@ -172,7 +186,13 @@ export async function splitSpriteSheet(src: string, opts: SplitOptions = {}): Pr
   out.height = TILE_H;
   const octx = out.getContext('2d')!;
 
-  const result: string[] = [];
+  const shade = document.createElement('canvas');
+  shade.width = TILE_W;
+  shade.height = TILE_H;
+  const shctx = shade.getContext('2d')!;
+
+  const free: string[] = [];
+  const blocked: string[] = [];
   for (const b of boxes as Box[]) {
     fctx.clearRect(0, 0, F, F);
     fctx.save();
@@ -223,7 +243,16 @@ export async function splitSpriteSheet(src: string, opts: SplitOptions = {}): Pr
     octx.fillRect(TILE.padL, TILE.padT, F, F);
     octx.restore();
 
-    result.push(out.toDataURL('image/png'));
+    free.push(await toUrl(out));
+
+    // variante in ombra: si mescola col marrone scuro solo dove la tessera è opaca (source-atop)
+    shctx.clearRect(0, 0, TILE_W, TILE_H);
+    shctx.drawImage(out, 0, 0);
+    shctx.globalCompositeOperation = 'source-atop';
+    shctx.fillStyle = 'rgba(52, 42, 32, 0.42)';
+    shctx.fillRect(0, 0, TILE_W, TILE_H);
+    shctx.globalCompositeOperation = 'source-over';
+    blocked.push(await toUrl(shade));
   }
-  return result;
+  return { free, blocked };
 }
