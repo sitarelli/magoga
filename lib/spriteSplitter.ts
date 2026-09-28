@@ -1,6 +1,6 @@
 /**
  * Taglia lo sprite sheet 9x6 in 54 tessere (dataURL).
- * Cella base = width/9 x height/6; poi rifila il bordo bianco e l'ombra
+ * Cella base = width/9 x height/6; poi rifila lo sfondo chiaro e l'ombra grigia
  * cercando il corpo beige della tessera, e ritaglia gli angoli arrotondati con alpha.
  */
 export interface SplitOptions {
@@ -23,9 +23,9 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 }
 
 /** Pixel della tessera: beige/colorato. Lo sfondo è bianco e l'ombra è grigio neutro. */
-const isTile = (r: number, g: number, b: number) => r - b >= 16 || Math.max(r, g, b) - Math.min(r, g, b) > 40;
+const isTile = (r: number, g: number, b: number) => r - b >= 28 || Math.max(r, g, b) - Math.min(r, g, b) > 55;
 
-function pickRun(flags: boolean[], center: number, maxGap = 4): [number, number] | null {
+function pickRun(flags: boolean[], center: number, maxGap = 1): [number, number] | null {
   const f = flags.slice();
   const n = f.length;
   let i = 0;
@@ -51,7 +51,7 @@ const median = (v: number[]) => {
 };
 
 export async function splitSpriteSheet(src: string, opts: SplitOptions = {}): Promise<string[]> {
-  const { cols = 9, rows = 6, outWidth = 176, outHeight = 204 } = opts;
+  const { cols = 9, rows = 6, outWidth = 176, outHeight = 182 } = opts;
   const img = await loadImage(src);
   const W = img.naturalWidth || img.width;
   const H = img.naturalHeight || img.height;
@@ -81,7 +81,7 @@ export async function splitSpriteSheet(src: string, opts: SplitOptions = {}): Pr
       for (let y = y0; y < y1; y++) {
         let n = 0;
         for (let x = x0; x < x1; x += 2) if (tile(x, y)) n++;
-        rowFlags.push(n > 0.3 * ((x1 - x0) / 2));
+        rowFlags.push(n > 0.45 * ((x1 - x0) / 2));
       }
       const colFlags: boolean[] = [];
       for (let x = x0; x < x1; x++) {

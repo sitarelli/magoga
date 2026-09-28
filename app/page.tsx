@@ -4,12 +4,12 @@ import { useSprites } from '@/hooks/useSprites';
 import { Game } from '@/components/Game';
 import { Splash } from '@/components/Splash';
 import { sound } from '@/lib/sound';
-import { freshProgress, loadProgress, saveProgress, type Progress } from '@/lib/progress';
+import { freshProgress, loadProgress, saveProgress, type Mode, type Progress } from '@/lib/progress';
 
 export default function Home() {
   const { sprites, error } = useSprites('/tiles.png');
   const [progress, setProgress] = useState<Progress>(freshProgress);
-  const [playing, setPlaying] = useState(false);
+  const [mode, setMode] = useState<Mode | null>(null);
   const [session, setSession] = useState(0);
 
   useEffect(() => {
@@ -24,36 +24,41 @@ export default function Home() {
     return () => document.removeEventListener('click', onClick);
   }, []);
 
-  const onProgress = useCallback((level: number, score: number) => {
-    setProgress((p) => {
-      const next = { level, score, bestLevel: Math.max(p.bestLevel, level), bestScore: Math.max(p.bestScore, score) };
-      saveProgress(next);
-      return next;
-    });
-  }, []);
+  const onProgress = useCallback(
+    (level: number, score: number) => {
+      if (!mode) return;
+      setProgress((p) => {
+        const cur = p[mode];
+        const next = { ...p, [mode]: { level, score, bestLevel: Math.max(cur.bestLevel, level), bestScore: Math.max(cur.bestScore, score) } };
+        saveProgress(next);
+        return next;
+      });
+    },
+    [mode],
+  );
 
-  const start = () => {
+  const start = (m: Mode) => {
     setSession((s) => s + 1);
-    setPlaying(true);
+    setMode(m);
   };
-  const restart = () => {
-    const next = { ...progress, level: 1, score: 0 };
+  const restart = (m: Mode) => {
+    const next = { ...progress, [m]: { ...progress[m], level: 1, score: 0 } };
     saveProgress(next);
     setProgress(next);
-    setSession((s) => s + 1);
-    setPlaying(true);
+    start(m);
   };
 
-  if (playing && sprites) {
+  if (mode && sprites) {
     return (
       <Game
         key={session}
+        mode={mode}
         sprites={sprites}
-        startLevel={progress.level}
-        startScore={progress.score}
+        startLevel={progress[mode].level}
+        startScore={progress[mode].score}
         onProgress={onProgress}
         onExit={() => {
-          setPlaying(false);
+          setMode(null);
           sound.setAmbient('water');
         }}
       />

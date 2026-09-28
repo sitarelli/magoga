@@ -412,10 +412,11 @@ class SoundEngine {
       case 'bird':
         [0, 0.09, 0.2].forEach((d, i) => this.tone(ctx, { freq: 2600 + i * 200, glideTo: 3900, glideTime: 0.05, t: s + d, dur: 0.07, gain: 0.05, send: 0.3, pan: 0.2 }));
         break;
-      case 'fireworks':
-        this.tone(ctx, { freq: 90, glideTo: 45, t: s, dur: 0.6, gain: 0.2, send: 0.5 });
-        for (let i = 0; i < 16; i++)
-          this.noiseBurst(ctx, { t: s + 0.1 + rand(0, 0.7), dur: 0.02, gain: rand(0.03, 0.07), from: rand(3000, 7000), q: 3, pan: rand(-0.7, 0.7), send: 0.4 });
+      case 'sparkle':
+        [91, 96, 100, 103].forEach((m, i) => this.bell(ctx, midi(m), s + i * 0.05, 0.6, 0.035, 0.6, (i - 1.5) * 0.3, 2.01));
+        break;
+      case 'gull':
+        this.gullCall(ctx, s, 0.22, 1.1, 0.09, 0.4, 0.3);
         break;
       case 'crab':
         this.noiseBurst(ctx, { t: s, dur: 0.02, gain: 0.12, type: 'highpass', from: 2500 });
@@ -428,6 +429,51 @@ class SoundEngine {
       default:
         this.plip(ctx, s + 0.05, 0.05);
     }
+  }
+
+  /** Colpo da maestro: 5 abbinamenti di fila, festa di coriandoli */
+  confetti() {
+    const ctx = this.live();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    // piccoli "pop" di cannoncini
+    [0, 0.12, 0.2].forEach((d, i) => {
+      this.noiseBurst(ctx, { t: t + d, dur: 0.12, gain: 0.16, from: 1800, to: 600, q: 0.9, pan: (i - 1) * 0.6, send: 0.3 });
+      this.tone(ctx, { freq: 180, glideTo: 90, t: t + d, dur: 0.12, gain: 0.18, pan: (i - 1) * 0.6 });
+    });
+    // arpeggio festoso che sale
+    [72, 76, 79, 84, 88, 91, 96].forEach((m, i) => this.bell(ctx, midi(m), t + 0.15 + i * 0.07, 1.1, 0.07, 0.45, (i - 3) * 0.2, 2.01));
+    [60, 64, 67, 72].forEach((m) => this.tone(ctx, { freq: midi(m), t: t + 0.15, dur: 1.8, gain: 0.045, attack: 0.08, type: 'triangle', send: 0.45 }));
+    // fruscio di carta che cade
+    for (let i = 0; i < 22; i++) {
+      this.noiseBurst(ctx, { t: t + 0.4 + rand(0, 1.4), dur: 0.04, gain: rand(0.01, 0.03), from: rand(3500, 7500), q: 2.5, pan: rand(-0.9, 0.9) });
+    }
+  }
+
+  /** Sfida: tempo recuperato (più alto se il guadagno è grande) */
+  timeGain(seconds: number) {
+    const ctx = this.live();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const up = Math.min(5, Math.round(seconds));
+    this.tone(ctx, { freq: midi(84 + up), glideTo: midi(91 + up), glideTime: 0.08, t: t + 0.2, dur: 0.18, gain: 0.05, send: 0.3 });
+  }
+
+  /** Sfida: tic d'allarme negli ultimi secondi, morbido */
+  timeWarn(last: boolean) {
+    const ctx = this.live();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    this.knock(ctx, t, last ? 900 : 760, 0.12);
+  }
+
+  /** Sfida: tempo scaduto. Il magòga se la ride */
+  timeout() {
+    const ctx = this.live();
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    [76, 72, 69, 64].forEach((m, i) => this.tone(ctx, { freq: midi(m), t: t + i * 0.18, dur: i === 3 ? 0.7 : 0.22, gain: 0.12, type: 'triangle', send: 0.3 }));
+    [0.9, 0.86, 0.82, 0.78].forEach((p, i) => this.gullCall(ctx, t + 0.9 + i * 0.16, 0.12, p, 0.2, 0.3, 0));
   }
 
   hint() {

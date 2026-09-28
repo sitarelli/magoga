@@ -4,10 +4,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Tile } from '@/lib/board';
 import { KIND_NAMES } from '@/lib/tiles';
 
-/** Proporzioni della tessera ritagliata (176x204) e passo sulla griglia */
-const ASPECT = 176 / 204;
-const SX = 0.93; // passo orizzontale in frazione della larghezza
-const SY = 0.86; // passo verticale: il bordo inferiore 3D resta sotto la tessera successiva
+/** Proporzioni della tessera ritagliata (176x182) e passo sulla griglia */
+const ASPECT = 176 / 182;
+const SX = 0.95; // passo orizzontale in frazione della larghezza
+const SY = 0.9; // passo verticale: il bordo inferiore 3D resta sotto la tessera successiva
 const DX = 0.075; // spostamento per strato
 const DY = 0.09;
 
@@ -118,7 +118,7 @@ export function Board({ tiles, sprites, free, selected, hint, vanishing, shakeId
                       src={sprites[t.kind]}
                       alt=""
                       draggable={false}
-                      className={`pointer-events-none h-full w-full select-none ${isFree ? 'tile-shadow' : 'tile-blocked'}`}
+                      className={`pointer-events-none h-full w-full select-none transition-[filter] duration-300 ${isFree ? 'tile-free' : 'tile-blocked'}`}
                     />
                   </span>
                   {isSel && (

@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Board } from './Board';
 import { Scene } from './Scene';
 import { MagogaSteal } from './Magoga';
+import { Confetti } from './Confetti';
+import type { Mode } from '@/lib/progress';
 import { SoundToggle } from './SoundToggle';
 import { availablePairs, dealSolvable, freeTiles, pickKinds, reshuffle, type Tile } from '@/lib/board';
 import { buildLayout, sceneFor, type SceneKey } from '@/lib/layout';
@@ -21,7 +23,15 @@ const AMBIENT: Record<SceneKey, Ambient> = {
 
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
+/** Sfida: tempo iniziale e velocità con cui scende */
+const challengeTime = (tiles: number) => Math.max(28, Math.min(150, Math.round(18 + tiles * 1.0)));
+const drainFor = (level: number) => 1 + Math.min(0.6, (level - 1) * 0.035);
+const STREAK_MS = 4000; // abbinamenti entro 4 s tengono viva la serie
+const MASTER_COUNT = 5; // colpo da maestro: 5 coppie...
+const MASTER_MS = 9000; // ...entro 9 secondi
+
 interface Props {
+  mode: Mode;
   sprites: string[];
   startLevel: number;
   startScore: number;
@@ -52,7 +62,7 @@ function ToolButton({ onClick, disabled, label, short, children }: { onClick: ()
   );
 }
 
-export function Game({ sprites, startLevel: initialLevel, startScore, onProgress, onExit }: Props) {
+export function Game({ mode, sprites, startLevel: initialLevel, startScore, onProgress, onExit }: Props) {
   const [level, setLevel] = useState(initialLevel);
   const initialLevelRef = useRef(initialLevel);
   const [tiles, setTiles] = useState<Tile[]>([]);
@@ -66,10 +76,19 @@ export function Game({ sprites, startLevel: initialLevel, startScore, onProgress
   const [levelScore, setLevelScore] = useState(0);
   const [bonus, setBonus] = useState(0);
   const [elapsed, setElapsed] = useState(0);
-  const [phase, setPhase] = useState<'playing' | 'magoga' | 'cleared'>('playing');
+  const [phase, setPhase] = useState<'playing' | 'magoga' | 'cleared' | 'timeout'>('playing');
   const [trophy, setTrophy] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(0);
+  const [gains, setGains] = useState<{ id: number; v: number }[]>([]);
+  const [confetti, setConfetti] = useState<number | null>(null);
+  const sfida = mode === 'sfida';
+  const maxTime = useRef(60);
+  const timeRef = useRef(0);
+  const streak = useRef({ n: 0, at: 0 });
+  const recent = useRef<number[]>([]);
+  const gainId = useRef(0);
 
   const history = useRef<{ a: Tile; b: Tile; points: number }[]>([]);
   const combo = useRef({ n: 0, at: 0 });
@@ -105,6 +124,11 @@ export function Game({ sprites, startLevel: initialLevel, startScore, onProgress
     setBonus(0);
     setElapsed(0);
     setTrophy(null);
+    maxTime.current = challengeTime(dealt.length);
+    timeRef.current = maxTime.current;
+    setTimeLeft(maxTime.current);
+    streak.current = { n: 0, at: 0 };
+    recent.current = [];
     setPhase('playing');
     sound.setAmbient(AMBIENT[sceneFor(n).key]);
     setTimeout(() => sound.deal(dealt.length, 1.6), 120);
@@ -127,13 +151,41 @@ export function Game({ sprites, startLevel: initialLevel, startScore, onProgress
     return () => clearInterval(iv);
   }, [phase, paused]);
 
+  /* ---------- Sfida: il tempo scende ---------- */
+  const addTime = useCallback((v: number) => {
+    timeRef.current = Math.max(0, Math.min(maxTime.current, timeRef.current + v));
+    setTimeLeft(timeRef.current);
+    const id = ++gainId.current;
+    setGains([{ id, v }]);
+    setTimeout(() => setGains((g) => g.filter((x) => x.id !== id)), 1100);
+  }, []);
+
+  useEffect(() => {
+    if (!sfida || phase !== 'playing' || paused || !dealKey) return;
+    const drain = drainFor(level);
+    const iv = setInterval(() => {
+      if (document.hidden) return;
+      const before = timeRef.current;
+      timeRef.current = Math.max(0, before - 0.1 * drain);
+      setTimeLeft(timeRef.current);
+      const sec = Math.ceil(timeRef.current);
+      if (sec < Math.ceil(before) && sec <= 10 && sec > 0) sound.timeWarn(sec <= 3);
+      if (timeRef.current <= 0) {
+        setSelected(null);
+        setPhase('timeout');
+        sound.timeout();
+      }
+    }, 100);
+    return () => clearInterval(iv);
+  }, [sfida, phase, paused, dealKey, level]);
+
   /* ---------- fine livello o nessuna mossa ---------- */
   useEffect(() => {
     if (phase !== 'playing' || !dealKey) return;
     if (tiles.length === 0) {
       const last = history.current[history.current.length - 1];
       setTrophy(last ? last.a.kind : 0);
-      const b = 50 + Math.max(0, totalTiles.current * 3 - elapsed);
+      const b = sfida ? 50 + Math.round(timeRef.current * 5) : 50 + Math.max(0, totalTiles.current * 3 - elapsed);
       setBonus(b);
       const total = scoreRef.current + b;
       setScore(total);
@@ -167,6 +219,24 @@ export function Game({ sprites, startLevel: initialLevel, startScore, onProgress
     setSelected(null);
     setHint([]);
     sound.match(kindSound(a.kind), c);
+
+    // colpo da maestro: 5 coppie di fila in pochi secondi
+    recent.current = [...recent.current, now].slice(-MASTER_COUNT);
+    const master = recent.current.length === MASTER_COUNT && now - recent.current[0] <= MASTER_MS;
+    if (master) {
+      recent.current = [];
+      setConfetti(now);
+      setTimeout(() => sound.confetti(), 180);
+      setScore((s) => s + 50);
+      setLevelScore((s) => s + 50);
+    }
+    if (sfida) {
+      const st = now - streak.current.at < STREAK_MS ? streak.current.n + 1 : 0;
+      streak.current = { n: st, at: now };
+      const gain = Math.round((2 + Math.min(st, 6) * 0.8 + (master ? 5 : 0)) * 10) / 10;
+      addTime(gain);
+      sound.timeGain(gain);
+    }
     setVanishing((v) => new Map(v).set(a.id, b.id).set(b.id, a.id));
     setTimeout(() => {
       setVanishing((v) => {
@@ -205,6 +275,8 @@ export function Game({ sprites, startLevel: initialLevel, startScore, onProgress
     if (!pairs.length) return;
     const [a, b] = pairs[Math.floor(Math.random() * pairs.length)];
     setHint([a.id, b.id]);
+    recent.current = []; // il suggerimento interrompe la serie
+    if (sfida) addTime(-5);
     sound.hint();
     clearTimeout(hintTimer.current);
     hintTimer.current = setTimeout(() => setHint([]), 3200);
@@ -217,12 +289,14 @@ export function Game({ sprites, startLevel: initialLevel, startScore, onProgress
     setSelected(null);
     setHint([]);
     history.current = [];
+    recent.current = [];
     setMoves((m) => m + 1);
+    if (sfida) addTime(-5);
     sound.shuffle();
   };
 
   const doUndo = () => {
-    if (vanishing.size) return;
+    if (vanishing.size || sfida) return;
     const last = history.current.pop();
     if (!last) return;
     setTiles((ts) => [...ts, last.a, last.b].sort((p, q) => p.id - q.id));
@@ -231,6 +305,7 @@ export function Game({ sprites, startLevel: initialLevel, startScore, onProgress
     setMoves((m) => m + 1);
     setSelected(null);
     combo.current = { n: 0, at: 0 };
+    recent.current = [];
     sound.undo();
   };
 
@@ -241,6 +316,12 @@ export function Game({ sprites, startLevel: initialLevel, startScore, onProgress
     setPaused(false);
     startLevel(level);
   };
+
+  useEffect(() => {
+    if (!confetti) return;
+    const t = setTimeout(() => setConfetti(null), 3800);
+    return () => clearTimeout(t);
+  }, [confetti]);
 
   const onMagogaDone = useCallback(() => setPhase('cleared'), []);
 
@@ -260,16 +341,48 @@ export function Game({ sprites, startLevel: initialLevel, startScore, onProgress
           <SoundToggle />
           <div className="glass hidden rounded-2xl px-3 py-1.5 sm:block">
             <p className="font-display text-lg font-bold italic leading-none text-legno-800">Magòga</p>
-            <p className="text-[11px] text-legno-600/80">{scene.name}</p>
+            <p className="text-[11px] text-legno-600/80">
+              {sfida ? 'Sfida' : 'Zen'}, {scene.name}
+            </p>
           </div>
         </div>
         <div className="glass flex items-center divide-x divide-legno-600/15 rounded-2xl py-1.5">
           <Stat label="Livello" value={level} />
-          <Stat label="Tempo" value={fmt(elapsed)} />
+          <Stat label={sfida ? 'Resta' : 'Tempo'} value={sfida ? fmt(Math.ceil(timeLeft)) : fmt(elapsed)} />
           <Stat label="Mosse" value={moves} />
           <Stat label="Punti" value={score} />
         </div>
       </header>
+
+      {sfida && (
+        <div className="relative z-10 mx-auto mt-2 w-full max-w-md px-4" aria-label={`Tempo rimasto ${Math.ceil(timeLeft)} secondi`}>
+          <div className="glass relative h-3.5 overflow-hidden rounded-full p-[3px]">
+            <div
+              className={`h-full rounded-full transition-[width] duration-100 ease-linear ${timeLeft / maxTime.current < 0.25 ? 'animate-pulse' : ''}`}
+              style={{
+                width: `${Math.max(0, (timeLeft / maxTime.current) * 100)}%`,
+                background:
+                  timeLeft / maxTime.current < 0.25
+                    ? 'linear-gradient(90deg,#d4550f,#e4572e)'
+                    : 'linear-gradient(90deg,#2f7f86,#e9c46a 55%,#f26b1d)',
+              }}
+            />
+          </div>
+          <AnimatePresence>
+            {gains.map((g) => (
+              <motion.span
+                key={g.id}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: -14 }}
+                exit={{ opacity: 0, y: -24 }}
+                className={`absolute -top-1 right-4 font-display text-lg font-bold drop-shadow ${g.v >= 0 ? 'text-crema' : 'text-spritz-300'}`}
+              >
+                {g.v >= 0 ? `+${g.v}s` : `${g.v}s`}
+              </motion.span>
+            ))}
+          </AnimatePresence>
+        </div>
+      )}
 
       {/* Tavola */}
       <main className="relative z-10 min-h-0 flex-1 px-2 py-3 sm:px-8 sm:py-5">
@@ -284,10 +397,12 @@ export function Game({ sprites, startLevel: initialLevel, startScore, onProgress
         <ToolButton onClick={doShuffle} disabled={phase !== 'playing'} label="Mescola">
           <path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5" />
         </ToolButton>
+        {!sfida && (
         <ToolButton onClick={doUndo} disabled={phase !== 'playing' || !history.current.length} label="Annulla">
           <path d="M9 14 4 9l5-5" />
           <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
         </ToolButton>
+        )}
         <span className="btn-soft rounded-2xl px-3 py-2.5 text-xs font-semibold text-legno-600">
           <span className="hidden sm:inline">{pairsLeft === 1 ? '1 coppia libera' : `${pairsLeft} coppie libere`}</span>
           <span className="sm:hidden">{pairsLeft === 1 ? '1 coppia' : `${pairsLeft} coppie`}</span>
@@ -305,6 +420,30 @@ export function Game({ sprites, startLevel: initialLevel, startScore, onProgress
             role="status"
           >
             {toast}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {confetti && <Confetti key={confetti} id={confetti} />}
+
+      {/* Sfida: tempo scaduto */}
+      <AnimatePresence>
+        {phase === 'timeout' && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-legno-900/35 p-4">
+            <motion.div initial={{ y: 24, scale: 0.97 }} animate={{ y: 0, scale: 1 }} className="glass w-full max-w-sm rounded-[28px] p-6 text-center" role="dialog" aria-label="Tempo scaduto">
+              <p className="font-display text-3xl font-semibold italic text-legno-800">Tempo scaduto</p>
+              <p className="mt-1 text-sm text-legno-600">
+                Mancavano {tiles.length} tessere. Il magòga ride dal tetto.
+              </p>
+              <div className="mt-5 flex flex-col gap-2">
+                <button onClick={restartLevel} className="btn-spritz rounded-2xl py-3 font-bold">
+                  Riprova il livello {level}
+                </button>
+                <button onClick={onExit} className="btn-soft rounded-2xl py-3 font-semibold text-legno-800">
+                  Schermata iniziale
+                </button>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -330,7 +469,9 @@ export function Game({ sprites, startLevel: initialLevel, startScore, onProgress
                   </div>
                 ))}
               </dl>
-              <p className="mt-3 text-xs text-legno-600">Bonus fine livello +{bonus}. Totale {score}.</p>
+              <p className="mt-3 text-xs text-legno-600">
+                {sfida ? 'Bonus tempo rimasto' : 'Bonus fine livello'} +{bonus}. Totale {score}.
+              </p>
               <button onClick={nextLevel} className="btn-spritz mt-5 w-full rounded-2xl py-3 text-base font-bold">
                 Livello {level + 1}: {sceneFor(level + 1).name}
               </button>
